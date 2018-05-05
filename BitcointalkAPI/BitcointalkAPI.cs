@@ -182,18 +182,22 @@ namespace BitcointalkAPI
             {
                 foreach (HtmlNode data in parsedHtml.DocumentNode.SelectNodes(@"//small"))
                 {
+
                     bool canUseAllFunction = false;
                     string selectedLink = ""; // Link currently selected for adding to list
+                    string selectedTitle = data.ParentNode.SelectSingleNode(@"span/a[@href]")?.InnerHtml;
 
                     // Checks to see if link container node isn't empty
                     if (data.SelectSingleNode(@"a[@href]") == null)
                     {
-                        selectedLink = data.ParentNode.SelectSingleNode(@"span/a[@href]").GetAttributeValue("href", "");
+
+                        selectedLink = data.ParentNode.SelectSingleNode(@"span/a[@href]")?.GetAttributeValue("href", "");
+                        
+
                         canUseAllFunction = true;
                     }
                     else
                     {
-
                         //Selects all number page links in link container
                         foreach (HtmlNode linkData in data.SelectNodes(@"a[@href]"))
                         {
@@ -211,7 +215,6 @@ namespace BitcointalkAPI
                                 link = Regex.Replace(link, @";all$", "");
                             }
 
-
                             if (selectedLink == "")
                             {
                                 selectedLink = link;
@@ -224,35 +227,47 @@ namespace BitcointalkAPI
 
 
                         // Checks if a thread doesn't have multiple pages and selects the core URL if it doesn't
-                        if (selectedLink == "")
+                        if (!string.IsNullOrWhiteSpace(selectedLink))
                         {
-                            foreach (HtmlNode link in data.ParentNode.SelectNodes(@"span[@id]/a[@href]"))
+                            if (data.ParentNode.SelectNodes(@"span[@id]/a[@href]") != null)
                             {
-                                if (!link.GetAttributeValue("href", "").Contains("topic="))
+                                foreach (HtmlNode link in data.ParentNode.SelectNodes(@"span[@id]/a[@href]"))
                                 {
-                                    continue;
+                                    if (!link.GetAttributeValue("href", "").Contains("topic="))
+                                    {
+                                        continue;
+                                    }
+                                    selectedLink = link.GetAttributeValue("href", "");
                                 }
-                                selectedLink = link.GetAttributeValue("href", "");
                             }
                         }
 
                     }
 
-                    if (selectedLink != "")
+                    if (!string.IsNullOrWhiteSpace(selectedLink))
                     {
                         try
                         {
-                            topicList.Add(new Topic(selectedLink, new PostParser(webSettings), canUseAllFunction, (int.Parse(Regex.Match(selectedLink, @"(\d+)$").Value) / 20) + 1, webSettings));
+                            topicList.Add(new Topic(selectedLink, selectedTitle, new PostParser(webSettings), canUseAllFunction, (int.Parse(Regex.Match(selectedLink, @"(\d+)$").Value) / 20) + 1, webSettings));
                         }
                         catch (Exception)
                         {
-                            topicList.Add(new Topic(selectedLink, new PostParser(webSettings), canUseAllFunction, 1, webSettings));
+                            try
+                            {
+                                topicList.Add(new Topic(selectedLink, selectedTitle, new PostParser(webSettings), canUseAllFunction, 1, webSettings));
+                            }
+                            catch
+                            {
+                                // Topic is invalid. Don't add it.
+                            }
                         }
                     }
                 }
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+
+                var error = ex;
                 throw new InvalidBitcointalkInputException("Can't parse one of the board's pages", typeof(Board));
             }
                      
@@ -295,6 +310,10 @@ namespace BitcointalkAPI
         /// The Id of the topic
         /// </summary>
         protected string topicID;
+        /// <summary>
+        /// The Title of the topic
+        /// </summary>
+        protected string title;
         /// <summary>
         /// Indicates whether the cache contains all posts within the topic (works when fetched using the 'all posts' or 'print' function)
         /// </summary>
@@ -380,6 +399,18 @@ namespace BitcointalkAPI
             }
         }
 
+        public string Title
+        {
+            get
+            {
+                return title;
+            }
+            protected set
+            {
+                title = value;
+            }
+        }
+
 
         /// <summary>
         /// Forced creation of a Topic (make sure the paramaters are valid)
@@ -389,9 +420,10 @@ namespace BitcointalkAPI
         /// <param name="canUseAllFunction">Can the topic use the 'all pages' function</param>
         /// <param name="maxPages">The number of pages the topic has</param>
         /// <param name="webSettings">The settings for fetching web pages</param>
-        internal Topic(string topicLink, PostParser postParser, bool canUseAllFunction ,int maxPages, WebConfig webSettings)
+        internal Topic(string topicLink, string topicTitle, PostParser postParser, bool canUseAllFunction ,int maxPages, WebConfig webSettings)
         {
             Link = topicLink;
+            Title = topicTitle;
             MaxPages = maxPages;
             topicPageParser = postParser;
             this.canUseAllFunction = canUseAllFunction;
@@ -404,9 +436,10 @@ namespace BitcointalkAPI
         /// <param name="topicLink">URL to the topic's / thread's page (any)</param>
         /// <param name="webSettings">The settings for fetching web pages</param>
         /// <param name="postParser">The object responsible for parsing the topic's / thread's HTML pages</param>
-        public Topic(string topicLink, WebConfig webSettings, PostParser postParser = default(PostParser))
+        public Topic(string topicLink, string topicTitle, WebConfig webSettings, PostParser postParser = default(PostParser))
         {
             Link = topicLink;
+            Title = topicTitle;
             if (postParser != default(PostParser))
             {
                 topicPageParser = postParser;
@@ -605,7 +638,7 @@ namespace BitcointalkAPI
         /// <returns>The selected Topic object's copy</returns>
         public Topic Copy()
         {
-            Topic tempTopic = new Topic(Link, new PostParser(webSettings), canUseAllFunction,MaxPages, webSettings);
+            Topic tempTopic = new Topic(Link, Title, new PostParser(webSettings), canUseAllFunction,MaxPages, webSettings);
             foreach (KeyValuePair<int, Post[]> postsInPage in postsIndexed)
             {
                 List<Post> tempPostList = new List<Post>();
@@ -660,15 +693,17 @@ namespace BitcointalkAPI
             parsedHtml.LoadHtml(html);
 
             int highestPage = 1;
-            foreach (HtmlNode node in parsedHtml.DocumentNode.SelectNodes(@"//td[@class=""middletext""]/a[@class=""navPages""]"))
+            if (parsedHtml.DocumentNode.SelectNodes(@"//td[@class=""middletext""]/a[@class=""navPages""]") != null)
             {
-                int tempNumber;
-                if (int.TryParse(node.InnerText,out tempNumber))
+                foreach (HtmlNode node in parsedHtml.DocumentNode.SelectNodes(@"//td[@class=""middletext""]/a[@class=""navPages""]"))
                 {
-                    highestPage = tempNumber > highestPage ? tempNumber : highestPage;
+                    int tempNumber;
+                    if (int.TryParse(node.InnerText, out tempNumber))
+                    {
+                        highestPage = tempNumber > highestPage ? tempNumber : highestPage;
+                    }
                 }
             }
-
             MaxPages = highestPage;
 
         }
@@ -1109,7 +1144,7 @@ namespace BitcointalkAPI
             }
             else if ((Link == default(string)) && (TopicLinkUnfinished != default(string)) && (AuthorLink != default(string)) && (Date != default(DateTime)))
             {
-                Topic tempTopic = new Topic(TopicLinkUnfinished + ".0", webSettings,postParser);
+                Topic tempTopic = new Topic(TopicLinkUnfinished + ".0", title, webSettings,postParser);
                 IEnumerable<Post> allPosts = await tempTopic.GetAllPostsAsync(true);
                 await Task.Delay(webSettings.requestDelay);
                 foreach (Post post in allPosts)
@@ -1376,7 +1411,7 @@ namespace BitcointalkAPI
                     {
                         postList.Add(new Post(
                             postContainer.SelectSingleNode(@".//a[@class=""message_number""]").GetAttributeValue("href", ""),
-                            WebUtility.HtmlDecode(postContainer.SelectSingleNode(@".//div[@class=""post""]").InnerText),
+                            postContainer.SelectSingleNode(@".//div[@class=""post""]").InnerHtml,
                             postContainer.ParentNode.SelectSingleNode(@".//td[@class=""poster_info""]/b/a[@href]").GetAttributeValue("href", ""),
                             postContainer.ParentNode.SelectSingleNode(@".//td[@class=""poster_info""]/b/a[@href]").InnerText,
                             postContainer.SelectSingleNode(@".//div[@class=""subject""]/a[@href]").InnerText,
@@ -1393,7 +1428,7 @@ namespace BitcointalkAPI
                             postList.Add(new Post(
                                 postContainer.SelectSingleNode(@".//a[@class=""message_number""]").GetAttributeValue("href", ""),
                                 int.Parse(postContainer.SelectSingleNode(@".//a[@class=""message_number""]").InnerText.Replace("#", "")),
-                                WebUtility.HtmlDecode(postContainer.SelectSingleNode(@".//div[@class=""post""]").InnerText),
+                                postContainer.SelectSingleNode(@".//div[@class=""post""]").InnerHtml,
                                 config,
                                 new PostParser(config)
                                 ));
