@@ -3,6 +3,7 @@ using HtmlAgilityPack;
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 using System.Net;
 using System.Text.RegularExpressions;
 using System.Threading;
@@ -187,6 +188,26 @@ namespace BitcointalkAPI
                     string selectedLink = ""; // Link currently selected for adding to list
                     string selectedTitle = data.ParentNode.SelectSingleNode(@"span/a[@href]")?.InnerHtml;
                     bool sticky = data.ParentNode.GetAttributeValue("class", "") == "windowbg3";
+                    string authorName = data.ParentNode.ParentNode
+                        .Descendants()
+                        .Where(n => n.Attributes["title"]!= null && n.Attributes["title"].Value.Contains("View the profile"))
+                        .FirstOrDefault()?
+                        .InnerText;
+                    string authorLink = data.ParentNode.ParentNode
+                        .Descendants()
+                        .Where(n => n.Attributes["title"] != null && n.Attributes["title"].Value.Contains("View the profile"))
+                        .FirstOrDefault()?
+                        .GetAttributeValue("href", "");
+                    int replies = 0;
+                    if (data.ParentNode.ParentNode.SelectSingleNode("td[5]")?.InnerText != null)
+                    {
+                        replies = Int32.Parse(data.ParentNode.ParentNode.SelectSingleNode("td[5]")?.InnerText);
+                    }
+                    int views = 0;
+                    if (data.ParentNode.ParentNode.SelectSingleNode("td[6]")?.InnerText != null)
+                    {
+                        views = Int32.Parse(data.ParentNode.ParentNode.SelectSingleNode("td[6]")?.InnerText);
+                    }
 
                     // Checks to see if link container node isn't empty
                     if (data.SelectSingleNode(@"a[@href]") == null)
@@ -249,13 +270,15 @@ namespace BitcointalkAPI
                     {
                         try
                         {
-                            topicList.Add(new Topic(selectedLink, selectedTitle, sticky, new PostParser(webSettings), canUseAllFunction, (int.Parse(Regex.Match(selectedLink, @"(\d+)$").Value) / 20) + 1, webSettings));
+                            topicList.Add(new Topic(selectedLink, selectedTitle, sticky, authorName, authorLink, replies, views, 
+                                new PostParser(webSettings), canUseAllFunction, (int.Parse(Regex.Match(selectedLink, @"(\d+)$").Value) / 20) + 1, webSettings));
                         }
                         catch (Exception)
                         {
                             try
                             {
-                                topicList.Add(new Topic(selectedLink, selectedTitle, sticky, new PostParser(webSettings), canUseAllFunction, 1, webSettings));
+                                topicList.Add(new Topic(selectedLink, selectedTitle, sticky, authorName, authorLink, replies, views, 
+                                    new PostParser(webSettings), canUseAllFunction, 1, webSettings));
                             }
                             catch
                             {
@@ -319,6 +342,22 @@ namespace BitcointalkAPI
         /// Indicates whether the topic is marked "sticky"
         /// </summary>
         protected bool sticky;
+        /// <summary>
+        /// The Author of the topic
+        /// </summary>
+        protected string authorName;
+        /// <summary>
+        /// The topic Author's link
+        /// </summary>
+        protected string authorLink;
+        /// <summary>
+        /// The number of topic replies
+        /// </summary>
+        protected int replies;
+        /// <summary>
+        /// The number of topic views
+        /// </summary>
+        protected int views;
         /// <summary>
         /// Indicates whether the cache contains all posts within the topic (works when fetched using the 'all posts' or 'print' function)
         /// </summary>
@@ -434,6 +473,54 @@ namespace BitcointalkAPI
             }
         }
 
+        public string AuthorLink
+        {
+            get
+            {
+                return authorLink;
+            }
+            protected set
+            {
+                authorLink = value;
+            }
+        }
+
+        public string AuthorName
+        {
+            get
+            {
+                return authorName;
+            }
+            protected set
+            {
+                authorName = value;
+            }
+        }
+
+        public int Replies
+        {
+            get
+            {
+                return replies;
+            }
+            protected set
+            {
+                replies = value;
+            }
+        }
+
+        public int Views
+        {
+            get
+            {
+                return views;
+            }
+            protected set
+            {
+                views = value;
+            }
+        }
+
 
         /// <summary>
         /// Forced creation of a Topic (make sure the paramaters are valid)
@@ -443,11 +530,16 @@ namespace BitcointalkAPI
         /// <param name="canUseAllFunction">Can the topic use the 'all pages' function</param>
         /// <param name="maxPages">The number of pages the topic has</param>
         /// <param name="webSettings">The settings for fetching web pages</param>
-        internal Topic(string topicLink, string topicTitle, bool topicSticky, PostParser postParser, bool canUseAllFunction ,int maxPages, WebConfig webSettings)
+        internal Topic(string topicLink, string topicTitle, bool topicSticky, string topicAuthor, string topicAuthorLink, int topicReplies, int topicViews, 
+            PostParser postParser, bool canUseAllFunction ,int maxPages, WebConfig webSettings)
         {
             Link = topicLink;
             Title = topicTitle;
             Sticky = topicSticky;
+            AuthorName = topicAuthor;
+            AuthorLink = topicAuthorLink;
+            Replies = topicReplies;
+            Views = topicViews;
             MaxPages = maxPages;
             topicPageParser = postParser;
             this.canUseAllFunction = canUseAllFunction;
@@ -460,11 +552,16 @@ namespace BitcointalkAPI
         /// <param name="topicLink">URL to the topic's / thread's page (any)</param>
         /// <param name="webSettings">The settings for fetching web pages</param>
         /// <param name="postParser">The object responsible for parsing the topic's / thread's HTML pages</param>
-        public Topic(string topicLink, string topicTitle, bool topicSticky, WebConfig webSettings, PostParser postParser = default(PostParser))
+        public Topic(string topicLink, string topicTitle, bool topicSticky, string topicAuthor, string topicAuthorLink, int topicReplies, int topicViews, 
+            WebConfig webSettings, PostParser postParser = default(PostParser))
         {
             Link = topicLink;
             Title = topicTitle;
             Sticky = topicSticky;
+            AuthorName = topicAuthor;
+            AuthorLink = topicAuthorLink;
+            Replies = topicReplies;
+            Views = topicViews;
             if (postParser != default(PostParser))
             {
                 topicPageParser = postParser;
@@ -663,7 +760,8 @@ namespace BitcointalkAPI
         /// <returns>The selected Topic object's copy</returns>
         public Topic Copy()
         {
-            Topic tempTopic = new Topic(Link, Title, Sticky, new PostParser(webSettings), canUseAllFunction,MaxPages, webSettings);
+            Topic tempTopic = new Topic(Link, Title, Sticky, AuthorName, AuthorLink, Replies, Views, 
+                new PostParser(webSettings), canUseAllFunction,MaxPages, webSettings);
             foreach (KeyValuePair<int, Post[]> postsInPage in postsIndexed)
             {
                 List<Post> tempPostList = new List<Post>();
@@ -1171,7 +1269,7 @@ namespace BitcointalkAPI
             {
 
                 // TODO Populate sticky value
-                Topic tempTopic = new Topic(TopicLinkUnfinished + ".0", title, false, webSettings,postParser);
+                Topic tempTopic = new Topic(TopicLinkUnfinished + ".0", title, false, string.Empty, string.Empty, 0, 0, webSettings,postParser);
                 IEnumerable<Post> allPosts = await tempTopic.GetAllPostsAsync(true);
                 await Task.Delay(webSettings.requestDelay);
                 foreach (Post post in allPosts)
