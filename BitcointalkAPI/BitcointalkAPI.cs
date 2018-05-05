@@ -186,6 +186,7 @@ namespace BitcointalkAPI
                     bool canUseAllFunction = false;
                     string selectedLink = ""; // Link currently selected for adding to list
                     string selectedTitle = data.ParentNode.SelectSingleNode(@"span/a[@href]")?.InnerHtml;
+                    bool sticky = data.ParentNode.GetAttributeValue("class", "") == "windowbg3";
 
                     // Checks to see if link container node isn't empty
                     if (data.SelectSingleNode(@"a[@href]") == null)
@@ -248,13 +249,13 @@ namespace BitcointalkAPI
                     {
                         try
                         {
-                            topicList.Add(new Topic(selectedLink, selectedTitle, new PostParser(webSettings), canUseAllFunction, (int.Parse(Regex.Match(selectedLink, @"(\d+)$").Value) / 20) + 1, webSettings));
+                            topicList.Add(new Topic(selectedLink, selectedTitle, sticky, new PostParser(webSettings), canUseAllFunction, (int.Parse(Regex.Match(selectedLink, @"(\d+)$").Value) / 20) + 1, webSettings));
                         }
                         catch (Exception)
                         {
                             try
                             {
-                                topicList.Add(new Topic(selectedLink, selectedTitle, new PostParser(webSettings), canUseAllFunction, 1, webSettings));
+                                topicList.Add(new Topic(selectedLink, selectedTitle, sticky, new PostParser(webSettings), canUseAllFunction, 1, webSettings));
                             }
                             catch
                             {
@@ -314,6 +315,10 @@ namespace BitcointalkAPI
         /// The Title of the topic
         /// </summary>
         protected string title;
+        /// <summary>
+        /// Indicates whether the topic is marked "sticky"
+        /// </summary>
+        protected bool sticky;
         /// <summary>
         /// Indicates whether the cache contains all posts within the topic (works when fetched using the 'all posts' or 'print' function)
         /// </summary>
@@ -399,6 +404,9 @@ namespace BitcointalkAPI
             }
         }
 
+        /// <summary>
+        /// The Title of the topic / thread
+        /// </summary>
         public string Title
         {
             get
@@ -411,6 +419,21 @@ namespace BitcointalkAPI
             }
         }
 
+        /// <summary>
+        /// Indicates whether the topic / thread is sticky
+        /// </summary>
+        public bool Sticky
+        {
+            get
+            {
+                return sticky;
+            }
+            protected set
+            {
+                sticky = value;
+            }
+        }
+
 
         /// <summary>
         /// Forced creation of a Topic (make sure the paramaters are valid)
@@ -420,10 +443,11 @@ namespace BitcointalkAPI
         /// <param name="canUseAllFunction">Can the topic use the 'all pages' function</param>
         /// <param name="maxPages">The number of pages the topic has</param>
         /// <param name="webSettings">The settings for fetching web pages</param>
-        internal Topic(string topicLink, string topicTitle, PostParser postParser, bool canUseAllFunction ,int maxPages, WebConfig webSettings)
+        internal Topic(string topicLink, string topicTitle, bool topicSticky, PostParser postParser, bool canUseAllFunction ,int maxPages, WebConfig webSettings)
         {
             Link = topicLink;
             Title = topicTitle;
+            Sticky = topicSticky;
             MaxPages = maxPages;
             topicPageParser = postParser;
             this.canUseAllFunction = canUseAllFunction;
@@ -436,10 +460,11 @@ namespace BitcointalkAPI
         /// <param name="topicLink">URL to the topic's / thread's page (any)</param>
         /// <param name="webSettings">The settings for fetching web pages</param>
         /// <param name="postParser">The object responsible for parsing the topic's / thread's HTML pages</param>
-        public Topic(string topicLink, string topicTitle, WebConfig webSettings, PostParser postParser = default(PostParser))
+        public Topic(string topicLink, string topicTitle, bool topicSticky, WebConfig webSettings, PostParser postParser = default(PostParser))
         {
             Link = topicLink;
             Title = topicTitle;
+            Sticky = topicSticky;
             if (postParser != default(PostParser))
             {
                 topicPageParser = postParser;
@@ -638,7 +663,7 @@ namespace BitcointalkAPI
         /// <returns>The selected Topic object's copy</returns>
         public Topic Copy()
         {
-            Topic tempTopic = new Topic(Link, Title, new PostParser(webSettings), canUseAllFunction,MaxPages, webSettings);
+            Topic tempTopic = new Topic(Link, Title, Sticky, new PostParser(webSettings), canUseAllFunction,MaxPages, webSettings);
             foreach (KeyValuePair<int, Post[]> postsInPage in postsIndexed)
             {
                 List<Post> tempPostList = new List<Post>();
@@ -1144,7 +1169,9 @@ namespace BitcointalkAPI
             }
             else if ((Link == default(string)) && (TopicLinkUnfinished != default(string)) && (AuthorLink != default(string)) && (Date != default(DateTime)))
             {
-                Topic tempTopic = new Topic(TopicLinkUnfinished + ".0", title, webSettings,postParser);
+
+                // TODO Populate sticky value
+                Topic tempTopic = new Topic(TopicLinkUnfinished + ".0", title, false, webSettings,postParser);
                 IEnumerable<Post> allPosts = await tempTopic.GetAllPostsAsync(true);
                 await Task.Delay(webSettings.requestDelay);
                 foreach (Post post in allPosts)
